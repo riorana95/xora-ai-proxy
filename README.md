@@ -1,239 +1,119 @@
-# CoreStack AI Proxy
+# Xora AI Proxy
 
-A small Node.js/Express microservice that sits between the Angular
+A small Node.js / Express 5 microservice that sits between the Angular
 frontend and an LLM provider. Holds the API key, applies structured
 prompts per endpoint, and returns JSON the frontend can consume.
 
-Supports **two providers** — pick the one that works for you:
+**Scope**: This proxy is Interview-Prep-specific. It is NOT a shared Xora
+service. All 6 endpoints are mock-interview / answer-coach / question-generator
+endpoints.
 
-| Provider | Cost | Setup | Recommended |
-|----------|------|-------|-------------|
-| **Cloudflare Workers AI** | FREE (10k neurons/day) | API token + account ID | ✅ Yes |
-| Z.ai (BigModel) | Paid (needs credits) | API key | Only if you have credits |
+## Tech Stack
 
-## Quick start (Cloudflare — free)
+- **Runtime**: Node.js 18+
+- **Framework**: Express 5 (ESM)
+- **CORS**: configured origin allowlist (no longer wide-open)
+- **Rate limit**: 60 req/min/IP (in-memory, sufficient for single-instance)
+- **AI providers** (pick one):
+  - **Cloudflare Workers AI** — FREE, 10k neurons/day, no credit card
+  - **Z.ai / BigModel GLM-4.6** — paid, requires credits
+- **Deployment**: Vercel serverless (`vercel.json` included) or any Node host
+
+## Quick Start (Cloudflare — FREE)
 
 1. Get a Cloudflare API token with Workers AI permission at
-   https://dash.cloudflare.com → My Profile → API Tokens
+   https://dash.cloudflare.com -> My Profile -> API Tokens
 2. Find your account ID on any Cloudflare dashboard page (right sidebar)
-3. Set env vars and start:
+3. Copy the env template and fill in your values:
+   ```bash
+   cp .env.example .env
+   # edit .env and set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+   ```
+4. Install deps and run:
+   ```bash
+   npm install
+   npm run dev   # node --watch server.js
+   ```
+5. Health check:
+   ```bash
+   curl http://localhost:3001/api/ai/health
+   ```
+
+## Environment Variables
+
+Copy `.env.example` to `.env` (gitignored) and fill in.
+
+| Variable                   | Required? | Description                                          |
+| -------------------------- | --------- | ---------------------------------------------------- |
+| `AI_PROVIDER`              | No        | `cloudflare` or `zai`. Auto-detects if unset.        |
+| `CLOUDFLARE_API_TOKEN`     | If CF     | Cloudflare API token with Workers AI permission      |
+| `CLOUDFLARE_ACCOUNT_ID`    | If CF     | Your Cloudflare account ID                           |
+| `CLOUDFLARE_MODEL`         | No        | Model ID (default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) |
+| `ZAI_API_KEY`              | If Z.ai   | Z.ai / BigModel API key                              |
+| `ZAI_BASE_URL`             | No        | Z.ai base URL (default: `https://open.bigmodel.cn/api/paas/v4`) |
+| `ZAI_TOKEN`                | No        | Z.ai JWT (only for internal sandbox API)             |
+| `PORT`                     | No        | Listen port (default: 3001)                          |
+| `XORA_ALLOWED_ORIGINS`     | No        | Comma-separated allowed CORS origins (default: `http://localhost:4200,https://xora-frontend.vercel.app`) |
+
+## API Endpoints
+
+All endpoints accept JSON and return JSON.
+
+| Method | Path                                | Description                          |
+| ------ | ----------------------------------- | ------------------------------------ |
+| GET    | `/api/ai/health`                    | Health check (returns active provider + model) |
+| POST   | `/api/ai/mock-interview/start`      | Start a mock interview session       |
+| POST   | `/api/ai/mock-interview/answer`     | Evaluate answer + return next Q      |
+| POST   | `/api/ai/mock-interview/results`    | Final summary + weak areas           |
+| POST   | `/api/ai/answer-coach/evaluate`     | Standalone answer evaluation         |
+| POST   | `/api/ai/question-generator`        | Generate practice questions          |
+
+### Request shapes
+
+See `prompts.js` for the exact JSON contract per endpoint. The Angular
+frontend's `AiPrepService` (`xora-frontend/src/app/home/interview/ai-prep/ai-prep.service.ts`)
+is the canonical consumer — read it for the exact request/response shapes.
+
+## Local Development
 
 ```bash
-cd ai-proxy
 npm install
-
-# Create .env file (or export these in your shell)
-cat > .env << 'EOF'
-AI_PROVIDER=cloudflare
-CLOUDFLARE_API_TOKEN=your_token_here
-CLOUDFLARE_ACCOUNT_ID=your_account_id_here
-EOF
-
-# Start (Node 20+)
-node --env-file=.env server.js
+npm run dev    # starts with --watch for auto-reload on save
 ```
 
-Or without a .env file:
+## Deployment
+
+### Vercel (recommended)
+
+The included `vercel.json` configures the project as a serverless Node
+function. Push to GitHub and import the repo into Vercel, then set the
+env vars in the Vercel dashboard.
+
+The frontend's `environment.prod.ts` should point at the deployed proxy:
+
+```typescript
+aiProxyUrl: 'https://xora-ai-proxy.vercel.app',
+```
+
+### Other Node hosts
 
 ```bash
-AI_PROVIDER=cloudflare \
-CLOUDFLARE_API_TOKEN=your_token \
-CLOUDFLARE_ACCOUNT_ID=your_account_id \
+npm install --omit=optional    # skip z-ai-web-dev-sdk if using Cloudflare
 npm start
 ```
 
-That's it. The proxy listens on http://localhost:3001.
+## Security Notes
 
-## Why Cloudflare Workers AI?
+- **CORS**: restricted to known Xora frontend origins. Override via
+  `XORA_ALLOWED_ORIGINS`.
+- **Rate limit**: 60 req/min/IP, in-memory. Sufficient for single-instance
+  Vercel deployments. For multi-instance, swap in Redis-backed rate limiting.
+- **No API key auth on the proxy itself** — relies on CORS + rate limit.
+  If you expose the proxy publicly (not through Vercel's private network),
+  consider adding an API key header check.
+- **Keys are read from env vars only** — never logged, never committed.
 
-- **Genuinely free tier** — 10,000 neurons per day at no cost
-- **No credit card required** to start
-- Multiple strong models available (llama-3.3-70b, kimi-k2.6, qwen2.5-coder)
-- OpenAI-compatible response format
-- Runs on Cloudflare's edge network (fast)
+## Phase 2 Notes
 
-## Choosing a model
-
-Set `CLOUDFLARE_MODEL` to any of these (all free-tier eligible):
-
-| Model | Strengths | Default? |
-|-------|-----------|----------|
-| `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | Best overall quality, good reasoning | ✅ |
-| `@cf/moonshotai/kimi-k2.6` | Strong reasoning, includes chain-of-thought | |
-| `@cf/meta/llama-3.1-8b-instruct` | Faster, lighter, good for simple tasks | |
-| `@cf/qwen/qwen2.5-coder-32b-instruct` | Best for code-related questions | |
-
-## Endpoints
-
-| Method | Path | Purpose |
-|--------|------|---------|
-| GET  | `/api/ai/health` | Health check (shows active provider + model) |
-| POST | `/api/ai/mock-interview/start` | Start a mock interview session |
-| POST | `/api/ai/mock-interview/answer` | Evaluate answer + return next question |
-| POST | `/api/ai/mock-interview/results` | Final summary + weak areas |
-| POST | `/api/ai/answer-coach/evaluate` | Standalone answer evaluation |
-| POST | `/api/ai/question-generator` | Generate practice questions |
-
-## Using Z.ai instead (alternative)
-
-If you have Z.ai credits and prefer it:
-
-```bash
-AI_PROVIDER=zai \
-ZAI_API_KEY=your_zai_api_key \
-npm start
-```
-
-The proxy will use Z.ai's GLM-4.6 model. Your account must have
-credits or calls will fail with `429: 余额不足`.
-
-## Deploy
-
-### Deploy to Vercel (recommended)
-
-The proxy is set up to run as a Vercel serverless function. Deploy
-it as a **separate Vercel project** from your frontend.
-
-#### Step 1 — Deploy the proxy
-
-**Option A: Via Vercel dashboard (easiest)**
-
-1. Push your repo to GitHub/GitLab/Bitbucket (if you haven't already)
-2. Go to https://vercel.com/new
-3. Import your repo
-4. **Important:** set the **Root Directory** to `ai-proxy` (so Vercel
-   only deploys that folder, not the frontend)
-5. Framework Preset: Vercel auto-detects "Node.js" — leave as is
-6. Add environment variables (see below)
-7. Click Deploy
-
-**Option B: Via Vercel CLI**
-
-```bash
-cd ai-proxy
-npm i -g vercel   # if you don't have the CLI
-vercel            # follow the prompts — link to a new or existing project
-vercel env add AI_PROVIDER
-vercel env add CLOUDFLARE_API_TOKEN
-vercel env add CLOUDFLARE_ACCOUNT_ID
-vercel --prod     # deploy to production
-```
-
-#### Step 2 — Set environment variables
-
-In the Vercel project settings → Environment Variables, add:
-
-| Name | Value |
-|------|-------|
-| `AI_PROVIDER` | `cloudflare` |
-| `CLOUDFLARE_API_TOKEN` | your Cloudflare API token |
-| `CLOUDFLARE_ACCOUNT_ID` | your Cloudflare account ID |
-
-(Optional: `CLOUDFLARE_MODEL` to override the default model.)
-
-#### Step 3 — Get the proxy URL
-
-After deploy, Vercel gives you a URL like:
-```
-https://corestack-ai-proxy.vercel.app
-```
-
-Verify it works:
-```bash
-curl https://corestack-ai-proxy.vercel.app/api/ai/health
-# → {"status":"ok","provider":"cloudflare (...)","timestamp":"..."}
-```
-
-#### Step 4 — Point the frontend at the deployed proxy
-
-Edit `corestack-frontend/src/app/environments/environment.prod.ts`:
-
-```ts
-export const environment = {
-  production: true,
-  apiUrl: 'https://corestackapi.duckdns.org',
-  aiProxyUrl: 'https://corestack-ai-proxy.vercel.app',  // ← your proxy URL
-  googleClientId: '...',
-};
-```
-
-Then redeploy the frontend. The AI Prep feature will now call the
-Vercel-hosted proxy, which calls Cloudflare Workers AI.
-
-#### Timeout note
-
-Vercel's Hobby plan has a **10-second timeout** on serverless
-functions. Most AI calls finish in 2-5 seconds, but long prompts
-(mock interview results with a full transcript) can take 10-15s.
-
-If you hit timeouts:
-- Upgrade to Vercel **Pro** ($20/mo) for 60-second timeouts, OR
-- Add `"maxDuration": 60` to the `builds[0].config` in `vercel.json`
-  (works on Pro), OR
-- Use a faster model like `@cf/meta/llama-3.1-8b-instruct` (sets
-  `CLOUDFLARE_MODEL` env var)
-
-### Deploy to other hosts
-
-Any Node.js host works (Railway, Render, Fly.io, a VM).
-
-```bash
-cd ai-proxy
-npm install
-AI_PROVIDER=cloudflare \
-CLOUDFLARE_API_TOKEN=your_token \
-CLOUDFLARE_ACCOUNT_ID=your_account_id \
-npm start
-```
-
-## Wire up the Angular frontend
-
-In `corestack-frontend/src/environments/environment.ts`, set the proxy URL:
-
-```ts
-export const environment = {
-  production: false,
-  apiUrl: 'https://corestackapi.duckdns.org',
-  aiProxyUrl: 'http://localhost:3001',  // ← your proxy URL
-  googleClientId: '...',
-};
-```
-
-## Troubleshooting
-
-### "No AI provider configured"
-
-Neither Cloudflare nor Z.ai credentials are set. See "Quick start" above.
-
-### "Cloudflare API error (401)"
-
-`CLOUDFLARE_API_TOKEN` is invalid or expired. Generate a new token at
-https://dash.cloudflare.com → My Profile → API Tokens. Make sure the
-token has permission to use Workers AI ("Account → Workers AI").
-
-### "Cloudflare API error (403)"
-
-Token doesn't have Workers AI permission, or wrong account ID. Verify
-both `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` are set correctly.
-
-### "Z.ai account has insufficient credits (429: 余额不足)"
-
-Your Z.ai account is out of credits. Either add credits at z.ai, or
-switch to Cloudflare (free) by setting `AI_PROVIDER=cloudflare`.
-
-### "AI did not return valid JSON"
-
-The model occasionally wraps its response in markdown fences despite
-the prompt instructions. The proxy already strips fences and extracts
-the JSON block. If it still fails, the prompt in `prompts.js` may need
-tuning for your specific model.
-
-### CORS errors in the browser
-
-The proxy enables CORS for all origins by default. To lock it down,
-change `app.use(cors())` to `app.use(cors({ origin: 'http://localhost:4200' }))`.
-
-## Request/response shapes
-
-See `prompts.js` for the exact JSON contract each endpoint returns.
-The Angular `ai-prep.models.ts` has matching TypeScript interfaces.
+This proxy will travel with the Interview Prep product when it splits into
+its own repo (`xora-interview-prep`).

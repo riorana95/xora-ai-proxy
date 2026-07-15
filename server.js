@@ -1,5 +1,5 @@
 /**
- * CoreStack AI Proxy — Server
+ * Xora AI Proxy — Server
  *
  * A small Express microservice that sits between the Angular frontend
  * and an LLM provider (Cloudflare Workers AI or Z.ai). Holds the API
@@ -71,8 +71,49 @@ process.on('uncaughtException', (err) => {
 });
 
 // ---------- Middleware ----------
-app.use(cors());
+// Restrict CORS to known Xora frontend origins. Configurable via env var
+// XORA_ALLOWED_ORIGINS (comma-separated). Defaults to Angular dev server
+// + the production Vercel deployment.
+const allowedOrigins = (process.env.XORA_ALLOWED_ORIGINS
+  || 'http://localhost:4200,https://xora-dev.vercel.app')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(cors({
+  origin(origin, cb) {
+    // allow same-origin / curl / server-side requests with no Origin header
+    if (!origin || allowedOrigins.includes(origin)) {
+      return cb(null, true);
+    }
+    return cb(new Error(`CORS blocked: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(express.json({ limit: '2mb' }));
+
+// Minimal per-IP rate limiter — protects the free Cloudflare quota from
+// being burned by a single client. 60 requests / minute / IP.
+const requestCounts = new Map();
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX = 60;
+app.use((req, res, next) => {
+  if (req.path === '/api/ai/health') return next();
+  const ip = req.ip || req.socket?.remoteAddress || 'unknown';
+  const now = Date.now();
+  const entry = requestCounts.get(ip) || { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
+  if (now > entry.resetAt) {
+    entry.count = 0;
+    entry.resetAt = now + RATE_LIMIT_WINDOW_MS;
+  }
+  entry.count += 1;
+  requestCounts.set(ip, entry);
+  if (entry.count > RATE_LIMIT_MAX) {
+    return res.status(429).json({ error: 'Rate limit exceeded. Try again in a minute.' });
+  }
+  next();
+});
 
 // ============================================================
 // Provider abstraction
@@ -430,7 +471,7 @@ const isVercel = !!process.env.VERCEL;
 
 if (!isVercel) {
   app.listen(PORT, () => {
-    console.log(`CoreStack AI proxy listening on http://localhost:${PORT}`);
+    console.log(`Xora AI proxy listening on http://localhost:${PORT}`);
     console.log(`Health: http://localhost:${PORT}/api/ai/health`);
     try {
       const p = getProvider();

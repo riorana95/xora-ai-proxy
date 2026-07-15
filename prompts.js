@@ -1,5 +1,5 @@
 /**
- * CoreStack AI Proxy — System Prompts
+ * Xora AI Proxy — System Prompts
  *
  * Each endpoint has its own system prompt that tells GLM-4.6 exactly
  * what role to play and what JSON shape to return. Keeping the prompts

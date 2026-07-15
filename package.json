@@ -1,7 +1,7 @@
 {
-  "name": "corestack-ai-proxy",
+  "name": "xora-ai-proxy",
   "version": "1.1.0",
-  "description": "AI proxy for CoreStack Interview Prep. Supports Cloudflare Workers AI (free) and Z.ai. Returns structured JSON the Angular frontend can consume.",
+  "description": "AI proxy for Xora Interview Prep. Supports Cloudflare Workers AI (free) and Z.ai. Returns structured JSON the Angular frontend can consume.",
   "type": "module",
   "main": "server.js",
   "scripts": {
