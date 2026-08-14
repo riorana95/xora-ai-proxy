@@ -45,6 +45,7 @@
  * env vars are present (Cloudflare wins if both are configured).
  */
 
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import {
