@@ -1,17 +1,21 @@
 {
   "name": "xora-ai-proxy",
-  "version": "1.1.0",
-  "description": "AI proxy for Xora Interview Prep. Supports Cloudflare Workers AI (free) and Z.ai. Returns structured JSON the Angular frontend can consume.",
+  "version": "1.2.0",
+  "description": "AI proxy for Xora Interview Prep. Supports Cloudflare Workers AI, Z.ai and Google Gemini Live.",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@google/genai": "^2.17.1",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
-    "express": "^5.1.0",
-    "cors": "^2.8.5"
+    "express": "^5.1.0"
   },
   "optionalDependencies": {
     "z-ai-web-dev-sdk": "^0.0.18"

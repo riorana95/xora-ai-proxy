@@ -5,8 +5,12 @@ frontend and an LLM provider. Holds the API key, applies structured
 prompts per endpoint, and returns JSON the frontend can consume.
 
 **Scope**: This proxy is Interview-Prep-specific. It is NOT a shared Xora
-service. All 6 endpoints are mock-interview / answer-coach / question-generator
-endpoints.
+service. Its eight endpoints cover mock interviews, answer coaching, question
+generation, and voice interviews.
+
+It also provides the Voice Interview endpoints. The proxy issues a short-lived,
+one-use Gemini Live token; the browser then streams audio directly to Gemini.
+The permanent `GEMINI_API_KEY` never reaches the frontend.
 
 ## Tech Stack
 
@@ -15,29 +19,30 @@ endpoints.
 - **CORS**: configured origin allowlist (no longer wide-open)
 - **Rate limit**: 60 req/min/IP (in-memory, sufficient for single-instance)
 - **AI providers** (pick one):
-  - **Cloudflare Workers AI** — FREE, 10k neurons/day, no credit card
+  - **Google Gemini 2.5 Flash** — recommended for interview training; free development tier, structured JSON, and a path to realtime voice
+  - **Cloudflare Workers AI** — FREE fallback, 10k neurons/day, no credit card
   - **Z.ai / BigModel GLM-4.6** — paid, requires credits
 - **Deployment**: Vercel serverless (`vercel.json` included) or any Node host
 
-## Quick Start (Cloudflare — FREE)
+## Quick Start (Gemini — recommended)
 
-1. Get a Cloudflare API token with Workers AI permission at
-   https://dash.cloudflare.com -> My Profile -> API Tokens
-2. Find your account ID on any Cloudflare dashboard page (right sidebar)
-3. Copy the env template and fill in your values:
+1. Create a Gemini API key in [Google AI Studio](https://aistudio.google.com/apikey).
+2. Copy the env template and fill in your values:
    ```bash
    cp .env.example .env
-   # edit .env and set CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+   # edit .env and set GEMINI_API_KEY
    ```
-4. Install deps and run:
+3. Install deps and run:
    ```bash
    npm install
    npm run dev   # node --watch server.js
    ```
-5. Health check:
+4. Health check:
    ```bash
    curl http://localhost:3001/api/ai/health
    ```
+
+Gemini's free tier is suitable for development and a small pilot. Its pricing page says that free-tier inputs/outputs may be used to improve Google's products, so move to the paid tier before sending production resumes or interview transcripts.
 
 ## Environment Variables
 
@@ -45,7 +50,9 @@ Copy `.env.example` to `.env` (gitignored) and fill in.
 
 | Variable                   | Required? | Description                                          |
 | -------------------------- | --------- | ---------------------------------------------------- |
-| `AI_PROVIDER`              | No        | `cloudflare` or `zai`. Auto-detects if unset.        |
+| `AI_PROVIDER`              | No        | `gemini`, `cloudflare`, or `zai`. Auto-detects if unset. |
+| `GEMINI_API_KEY`           | If Gemini | Gemini API key from Google AI Studio.                |
+| `GEMINI_MODEL`             | No        | Gemini model ID (default: `gemini-2.5-flash`).       |
 | `CLOUDFLARE_API_TOKEN`     | If CF     | Cloudflare API token with Workers AI permission      |
 | `CLOUDFLARE_ACCOUNT_ID`    | If CF     | Your Cloudflare account ID                           |
 | `CLOUDFLARE_MODEL`         | No        | Model ID (default: `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) |
@@ -67,6 +74,8 @@ All endpoints accept JSON and return JSON.
 | POST   | `/api/ai/mock-interview/results`    | Final summary + weak areas           |
 | POST   | `/api/ai/answer-coach/evaluate`     | Standalone answer evaluation         |
 | POST   | `/api/ai/question-generator`        | Generate practice questions          |
+| POST   | `/api/ai/voice/session`              | Create a secure Gemini Live session  |
+| POST   | `/api/ai/voice/results`              | Evaluate a voice-interview transcript |
 
 ### Request shapes
 
@@ -112,6 +121,9 @@ npm start
   If you expose the proxy publicly (not through Vercel's private network),
   consider adding an API key header check.
 - **Keys are read from env vars only** — never logged, never committed.
+- **Voice tokens**: `/api/ai/voice/session` returns a constrained, one-use
+  Gemini token that expires quickly. Add application-level user authentication
+  before opening voice interviews to the public.
 
 ## Phase 2 Notes
 
